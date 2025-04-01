@@ -1,70 +1,99 @@
-# Getting Started with Create React App
+# 实现原理
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## js隔离
 
-## Available Scripts
+目标：
+- 隔离cookie/localstorage
+- 隔离全局变量、timeout
+- 隔离事件
+- 隔离history，location
 
-In the project directory, you can run:
+方法：
 
-### `npm start`
+### iframe 隔离
+1、通过new iframe取出contentWindow，然后通过Proxy限制能只能操作沙箱
+限制： 只有同域才能取出（或者about:blank, 会影响history不能被操作，只能改为hash模式)
+2、然后打包的时候（或者运行时拼接这一段代码）给子应用代码包一层闭包，传进去模拟的window、document对象等
+```js
+class MicroApp {
+    constructor(name) {
+        this.name = name;
+        this.iframe = null;
+    }
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+    // 创建沙箱环境
+    createSandbox() {
+        // 1. 创建 iframe 作为隔离环境
+        this.iframe = document.createElement('iframe');
+        this.iframe.style.display = 'none';
+        document.body.appendChild(this.iframe);
+        
+        // 2. 获取 iframe 的 contentWindow
+        const sandboxWindow = this.iframe.contentWindow;
+        
+        // 3. 创建代理来限制访问
+        const sandboxProxy = new Proxy(sandboxWindow, {
+            get(target, prop) {
+                // 只允许访问安全的属性
+                const safeProps = ['document', 'location', 'history'];
+                if (safeProps.includes(prop)) {
+                    return target[prop];
+                }
+                return undefined;
+            }
+        });
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+        return sandboxProxy;
+    }
 
-### `npm test`
+    // 加载子应用
+    loadApp(appCode) {
+        // 1. 确保有沙箱环境
+        const sandbox = this.createSandbox();
+        
+        // 2. 包装代码，确保在沙箱环境中运行
+        const wrappedCode = `
+            (function(window) {
+                // 子应用代码
+                ${appCode}
+            })(window);
+        `;
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+        // 3. 在沙箱中执行代码
+        sandbox.eval(wrappedCode);
+    }
+}
 
-### `npm run build`
+// 使用示例
+const microApp = new MicroApp('myApp');
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+// 子应用代码
+const appCode = `
+    // 这里的代码会在 iframe 的沙箱环境中运行
+    const element = document.createElement('div');
+    element.setAttribute('class', 'my-component');
+    
+    // 这里的 localStorage 是 iframe 中的 localStorage
+    localStorage.setItem('myKey', 'myValue');
+    
+    // 这里的 setTimeout 是 iframe 中的 setTimeout
+    setTimeout(() => {
+        console.log('Timeout in sandbox');
+    }, 1000);
+`;
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+microApp.loadApp(appCode);
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Function + AST + proxy
 
-### `npm run eject`
+### fake window + proxy
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## css隔离
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+方法：
+- css module(业务组件）/css namespace（公共库构建时自动处理）。 限制： 嵌套子应用样式优先级
+- 动态css: 切换时会卸载样式，弹窗和样式文件之类的都挂在微应用容器下。 限制：无法兼容多子应用同时运行；框架本身的样式可能会冲突，比如基于next组件的
+- shadow dom
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)

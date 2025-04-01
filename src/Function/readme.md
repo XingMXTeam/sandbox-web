@@ -12,6 +12,33 @@ function compileCode (src) {
 compileCode()
 ```
 
+```js
+// 直接使用 eval
+eval(code);  // eval 的 this 指向当前作用域，比如window
+
+// 在严格模式下，直接调用 eval 会使用当前作用域的 this
+'use strict';
+eval('console.log(this)');  // this 指向 undefined 或当前作用域
+
+// (0,eval)
+function test() {
+    const x = 1;
+    
+    // 直接调用 eval 时，JavaScript 引擎会特殊处理
+    // 允许 eval 访问当前作用域的变量
+    eval('console.log(x)');  // 可以访问到 x
+    
+    // 当通过引用调用 eval 时（包括 (0,eval)）
+    // JavaScript 引擎不会特殊处理
+    // 此时 eval 就像一个普通函数
+    // 只能访问全局作用域的变量
+    (0,eval)('console.log(x)');  // 无法访问到 x  
+    // 可以确保获取到真正的全局对象，而不是闭包中的 window
+    (0,eval)('window')
+
+}
+```
+
 ## Function
 
 ```js
